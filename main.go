@@ -31,6 +31,8 @@ type thumbnail struct {
 
 var videoThumbnails = map[uuid.UUID]thumbnail{}
 
+const serverpath = "http://localhost:8091/"
+
 func main() {
 	godotenv.Load(".env")
 
