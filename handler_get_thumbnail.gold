@@ -1,3 +1,4 @@
+/*
 package main
 
 import (
@@ -30,3 +31,4 @@ func (cfg *apiConfig) handlerThumbnailGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 }
+*/

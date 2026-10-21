@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -47,7 +50,36 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Unable to parse media type", err)
 		return
 	}
+
+	if mediatype != "image/jpeg" && mediatype != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Unsupported media type", err)
+		return
+	}
+
+	mimeParts := strings.Split(mediatype, "/")
+	fileExtension := mimeParts[len(mimeParts)-1]
+	tnFileName := videoID.String() + "." + fileExtension
+	filePath := filepath.Join(cfg.assetsRoot, tnFileName)
+
+	fmt.Printf("filePath: %s\n", filePath)
+	fmt.Printf("tnFileName: %s\n", tnFileName)
+
+	tnf, err := os.Create(filePath)
+	defer tnf.Close()
+
 	thumbnailData, err := io.ReadAll(file)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to read file", err)
+	}
+
+	_, err = io.Copy(tnf, bytes.NewReader(thumbnailData))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to copy file", err)
+	}
+
+	tnURL := serverpath + "assets/" + tnFileName
+	fmt.Printf("tnURL: %s\n", tnURL)
+
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to find video", err)
@@ -59,15 +91,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tn := thumbnail{}
-	tn.data = thumbnailData
-	tn.mediaType = mediatype
-	videoThumbnails[videoID] = tn
-
-	log.Printf("thumnail map: %v", videoThumbnails)
-
-	thumbURL := serverpath + "api/thumbnails/" + videoID.String()
-	video.ThumbnailURL = &thumbURL
+	video.ThumbnailURL = &tnURL
 
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
