@@ -77,23 +77,55 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Unable to create copy temp file", err)
 	}
 
+	ratio, err := getVideoAspectRatio(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to get aspect ratio", err)
+		return
+	}
+
+	var prefix string
+	switch {
+	case ratio == "16:9":
+		prefix = "landscape/"
+	case ratio == "9:16":
+		prefix = "portrait/"
+	default:
+		prefix = "other/"
+	}
+
 	tmpFile.Seek(0, io.SeekStart)
+
+	fastFile, err := processVideoForFastStart(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to process video for fast start", err)
+		return
+	}
+
+	s3File, err := os.Open(fastFile)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to open fast file", err)
+		return
+	}
+	defer os.Remove(s3File.Name())
+	defer s3File.Close()
 
 	// name the file we are placing on s3 bucket
 	randName := make([]byte, 32)
 	_, err = rand.Read(randName)
-	s3FileName := base64.RawURLEncoding.EncodeToString(randName) + ".mp4"
+	s3FileName := prefix + base64.RawURLEncoding.EncodeToString(randName) + ".mp4"
 
 	put := s3.PutObjectInput{}
 	put.Bucket = &cfg.s3Bucket
 	put.Key = &s3FileName
-	put.Body = tmpFile
+	put.Body = s3File
 	put.ContentType = &mediatype
 
 	// upload it
 	_, err = cfg.s3Client.PutObject(context.Background(), &put)
 
-	videoURL := "http://tubely-11066.s3." + cfg.s3Region + ".amazonaws.com/" + s3FileName
+	//videoURL := "http://tubely-11066.s3." + cfg.s3Region + ".amazonaws.com/" + s3FileName
+	// videoURL := cfg.s3Bucket + "," + s3FileName
+	videoURL := cfg.s3CfDistribution + s3FileName
 	formatted := time.Now().Format("2006-01-02 15:04:05")
 	updateTime, _ := time.Parse("2006-01-02 15:04:05", formatted)
 	video.UpdatedAt = updateTime
@@ -107,6 +139,16 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	respondWithJSON(w, http.StatusOK, video)
+	/*
+		respVideo, err := cfg.dbVideoToSignedVideo(video)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Unable to respond with video", err)
+		}
+
+		fmt.Printf("video: %v\n", respVideo)
+		respondWithJSON(w, http.StatusOK, respVideo)
+	*/
 	return
 
 }
